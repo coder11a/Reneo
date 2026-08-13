@@ -28,7 +28,7 @@ export default function CartPage() {
 
   return (
     <div className="page">
-      <div className="container" style={{ maxWidth: 720 }}>
+      <div className="container cart-page-container">
         <div className="page-header">
           <div>
             <h1 className="page-title">Shopping Cart</h1>
@@ -79,11 +79,7 @@ export default function CartPage() {
                 </button>
               </div>
 
-              <div style={{
-                fontWeight: 'var(--font-weight-bold)',
-                minWidth: 72,
-                textAlign: 'right',
-              }}>
+              <div className="cart-item-subtotal">
                 ${(Number(item.product.price) * item.quantity).toFixed(2)}
               </div>
 
@@ -103,7 +99,7 @@ export default function CartPage() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="cart-actions">
           <Link to="/" className="btn btn-secondary">
             <ArrowLeft size={18} />
             Continue Shopping

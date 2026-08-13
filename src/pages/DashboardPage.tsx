@@ -10,7 +10,7 @@ import { goLive, LIVE_FRESHNESS_MS } from '../lib/live';
 type LiveSessionWithDetails = LiveSession & {
   product: Product;
   host: Profile;
-  items: { count: number }[];
+  sessionProducts: { product: Product | null }[];
 };
 
 export default function DashboardPage() {
@@ -162,12 +162,10 @@ function CustomerDashboard() {
 
   const fetchSessions = useCallback(async () => {
     try {
-      const freshCutoff = new Date(Date.now() - LIVE_FRESHNESS_MS).toISOString();
       const { data, error } = await supabase
         .from('live_sessions')
-        .select('*, product:products!live_sessions_product_id_fkey(*), host:profiles(*), items:live_session_products(count)')
-        .eq('status', 'live')
-        .gt('last_seen_at', freshCutoff);
+        .select('*, product:products!live_sessions_product_id_fkey(*), host:profiles(*), sessionProducts:live_session_products(product:products(*))')
+        .eq('status', 'live');
 
       if (error) throw error;
       setLiveSessions((data as LiveSessionWithDetails[]) || []);
@@ -182,7 +180,16 @@ function CustomerDashboard() {
   useEffect(() => {
     fetchSessions();
     const interval = setInterval(fetchSessions, 10000);
-    return () => clearInterval(interval);
+    const liveChannel = supabase
+      .channel('customer-live-sessions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'live_sessions' }, fetchSessions)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'live_session_products' }, fetchSessions)
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(liveChannel);
+    };
   }, [fetchSessions]);
 
   if (loading) {
@@ -218,11 +225,17 @@ function CustomerDashboard() {
           </div>
         ) : (
           <div className="product-grid">
-            {liveSessions.map(session => (
+            {liveSessions.map(session => {
+              const products = session.sessionProducts
+                ?.map(item => item.product)
+                .filter((product): product is Product => Boolean(product)) ?? [];
+              const featuredProduct = products.find(product => product.id === session.product_id) || session.product;
+
+              return (
               <div key={session.id} className="card">
                 <div style={{ position: 'relative' }}>
-                  {session.product?.image_url ? (
-                    <img src={session.product.image_url} alt={session.product?.name} className="card-image" />
+                  {featuredProduct?.image_url ? (
+                    <img src={featuredProduct.image_url} alt={featuredProduct.name} className="card-image" />
                   ) : (
                     <div className="card-image" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)' }}>
                       No image
@@ -238,23 +251,26 @@ function CustomerDashboard() {
                     {session.host?.name || 'Unknown host'}
                   </div>
                   <h3 style={{ fontWeight: 'var(--font-weight-semibold)', marginBottom: 'var(--space-2)' }}>
-                    {session.product?.name}
+                    {featuredProduct?.name}
                   </h3>
                   <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-primary)', marginBottom: 'var(--space-4)' }}>
-                    ${Number(session.product?.price || 0).toFixed(2)}
-                    {(session.items?.[0]?.count ?? 1) > 1 && (
-                      <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-medium)', color: 'var(--color-text-secondary)', marginLeft: 'var(--space-2)' }}>
-                        +{(session.items[0].count - 1)} more product{session.items[0].count - 1 > 1 ? 's' : ''}
-                      </span>
-                    )}
+                    ${Number(featuredProduct?.price || 0).toFixed(2)}
                   </div>
+                  {products.length > 1 && (
+                    <div className="live-session-product-list" aria-label={`${products.length} products in this live session`}>
+                      {products.map(product => (
+                        <span key={product.id} className="live-session-product-chip">{product.name}</span>
+                      ))}
+                    </div>
+                  )}
                   <Link to={`/live/${session.id}`} className="btn btn-primary" style={{ width: '100%' }}>
                     <Eye size={16} />
                     Join Live
                   </Link>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

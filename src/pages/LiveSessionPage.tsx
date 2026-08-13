@@ -55,7 +55,9 @@ export default function LiveSessionPage() {
   const [videoMuted, setVideoMuted] = useState(false);
   const [showProductDetail, setShowProductDetail] = useState(false);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
-  const [activeTab, setActiveTab] = useState<'chat' | 'product'>('chat');
+  // On phones, make the full live catalog visible immediately; chat remains
+  // one tap away and desktop continues to show both panels side-by-side.
+  const [activeTab, setActiveTab] = useState<'chat' | 'product'>('product');
   const [viewerCount, setViewerCount] = useState(0);
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const [hasLocalVideo, setHasLocalVideo] = useState(false);
@@ -73,11 +75,16 @@ export default function LiveSessionPage() {
 
   const fetchSessionProducts = useCallback(async () => {
     if (!sessionId) return;
-    const { data } = await supabase
+    const { data, error: productsError } = await supabase
       .from('live_session_products')
       .select('product:products(*)')
       .eq('session_id', sessionId)
       .order('added_at', { ascending: true });
+    if (productsError) {
+      console.error('Failed to load session products:', productsError);
+      toast.error('Could not load the products in this session.');
+      return;
+    }
     setSessionProducts(((data as unknown as { product: Product }[]) || []).map(r => r.product).filter(Boolean));
   }, [sessionId]);
 
@@ -161,6 +168,20 @@ export default function LiveSessionPage() {
 
         const hostStatus = user?.id === sessionData.host_id;
         setIsHost(hostStatus);
+
+        // A live session should be discoverable as soon as its host opens it,
+        // even if camera or microphone setup is delayed or denied.
+        if (hostStatus) {
+          const beat = async () => {
+            const { error: heartbeatError } = await supabase
+              .from('live_sessions')
+              .update({ last_seen_at: new Date().toISOString() })
+              .eq('id', sessionId);
+            if (heartbeatError) console.error('Failed to update live heartbeat:', heartbeatError);
+          };
+          void beat();
+          heartbeatRef.current = window.setInterval(() => void beat(), 10000);
+        }
 
         // Wait for any prior teardown to finish so the same UID isn't joining
         // twice (StrictMode remount) — that triggers Agora UID_CONFLICT.
@@ -323,12 +344,6 @@ export default function LiveSessionPage() {
           await client.publish(tracksToPublish);
         }
 
-        // Heartbeat: keep the session marked live only while the host is here.
-        // Stops on leave/tab-close, so stale sessions drop off the customer feed.
-        const beat = () =>
-          supabase.from('live_sessions').update({ last_seen_at: new Date().toISOString() }).eq('id', sessionId);
-        beat();
-        heartbeatRef.current = window.setInterval(beat, 10000);
       }
       // Audience: do NOT create or publish any local tracks
     } catch (err: unknown) {
