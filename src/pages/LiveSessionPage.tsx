@@ -56,6 +56,7 @@ export default function LiveSessionPage() {
   const [activeTab, setActiveTab] = useState<'chat' | 'product'>('chat');
   const [viewerCount, setViewerCount] = useState(0);
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
+  const [hasLocalVideo, setHasLocalVideo] = useState(false);
 
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const localAudioTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
@@ -166,6 +167,14 @@ export default function LiveSessionPage() {
     };
   }, [sessionId, user?.id, authLoading]);
 
+  // Play the host's local camera into the container once it's actually rendered
+  // (during setup the loading screen is up, so the container ref is still null).
+  useEffect(() => {
+    if (!loading && hasLocalVideo && localVideoTrackRef.current && videoContainerRef.current) {
+      localVideoTrackRef.current.play(videoContainerRef.current);
+    }
+  }, [loading, hasLocalVideo]);
+
   const setupAgora = async (channelName: string, isUserHost: boolean) => {
     try {
       const { token, appId } = await fetchToken(channelName, isUserHost ? 'host' : 'audience');
@@ -245,10 +254,7 @@ export default function LiveSessionPage() {
         try {
           const videoTrack = await AgoraRTC.createCameraVideoTrack();
           localVideoTrackRef.current = videoTrack;
-
-          if (videoContainerRef.current) {
-            videoTrack.play(videoContainerRef.current);
-          }
+          setHasLocalVideo(true); // play it from an effect once the container is mounted
         } catch (e) {
           toast.error('Camera access denied. Please allow camera in your browser settings.');
           console.error('Camera error:', e);
