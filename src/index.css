@@ -1294,6 +1294,15 @@ ul, ol {
   }
 }
 
+/* Products panel: always visible on desktop; mobile toggles it via the tab. */
+@media (min-width: 769px) {
+  .sidebar-products {
+    display: flex !important;
+    flex: 1;
+    overflow-y: auto;
+  }
+}
+
 /* ── No-video placeholder ── */
 .no-video-placeholder {
   display: flex;

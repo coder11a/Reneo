@@ -164,7 +164,7 @@ function CustomerDashboard() {
       const freshCutoff = new Date(Date.now() - LIVE_FRESHNESS_MS).toISOString();
       const { data, error } = await supabase
         .from('live_sessions')
-        .select('*, product:products(*), host:profiles(*)')
+        .select('*, product:products!live_sessions_product_id_fkey(*), host:profiles(*)')
         .eq('status', 'live')
         .gt('last_seen_at', freshCutoff);
 

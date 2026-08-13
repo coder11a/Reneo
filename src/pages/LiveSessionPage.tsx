@@ -29,6 +29,7 @@ import { useAgoraToken } from '../hooks/useAgoraToken';
 import { ChatPanel } from '../components/live/ChatPanel';
 import { ProductDetailPanel } from '../components/live/ProductDetailPanel';
 import { StreamEnded } from '../components/live/StreamEnded';
+import { SessionProducts } from '../components/live/SessionProducts';
 import { LiveSession, Product, Profile } from '../types';
 
 type SessionWithDetails = LiveSession & {
@@ -53,10 +54,13 @@ export default function LiveSessionPage() {
   const [micMuted, setMicMuted] = useState(false);
   const [videoMuted, setVideoMuted] = useState(false);
   const [showProductDetail, setShowProductDetail] = useState(false);
+  const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [activeTab, setActiveTab] = useState<'chat' | 'product'>('chat');
   const [viewerCount, setViewerCount] = useState(0);
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const [hasLocalVideo, setHasLocalVideo] = useState(false);
+  const [sessionProducts, setSessionProducts] = useState<Product[]>([]);
+  const [featuredId, setFeaturedId] = useState<string | null>(null);
 
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const localAudioTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
@@ -65,6 +69,36 @@ export default function LiveSessionPage() {
   const cleanupRef = useRef(false);
   const heartbeatRef = useRef<number | null>(null);
   const leavePromiseRef = useRef<Promise<void> | null>(null);
+  const remoteVideoTrackRef = useRef<IRemoteVideoTrack | null>(null);
+
+  const fetchSessionProducts = useCallback(async () => {
+    if (!sessionId) return;
+    const { data } = await supabase
+      .from('live_session_products')
+      .select('product:products(*)')
+      .eq('session_id', sessionId)
+      .order('added_at', { ascending: true });
+    setSessionProducts(((data as unknown as { product: Product }[]) || []).map(r => r.product).filter(Boolean));
+  }, [sessionId]);
+
+  const addProduct = async (productId: string) => {
+    await supabase.from('live_session_products').insert({ session_id: sessionId, product_id: productId });
+    fetchSessionProducts();
+  };
+
+  const removeProduct = async (productId: string) => {
+    if (productId === featuredId) {
+      toast.error('Feature another product before removing this one.');
+      return;
+    }
+    await supabase.from('live_session_products').delete().eq('session_id', sessionId).eq('product_id', productId);
+    fetchSessionProducts();
+  };
+
+  const setFeatured = async (productId: string) => {
+    await supabase.from('live_sessions').update({ product_id: productId }).eq('id', sessionId);
+    setFeaturedId(productId);
+  };
 
   const leaveChannel = useCallback(async () => {
     if (cleanupRef.current) return;
@@ -106,7 +140,7 @@ export default function LiveSessionPage() {
       try {
         const { data, error: sessionError } = await supabase
           .from('live_sessions')
-          .select('*, product:products(*), host:profiles(*)')
+          .select('*, product:products!live_sessions_product_id_fkey(*), host:profiles(*)')
           .eq('id', sessionId)
           .single();
 
@@ -116,6 +150,8 @@ export default function LiveSessionPage() {
 
         const sessionData = data as SessionWithDetails;
         setSession(sessionData);
+        setFeaturedId(sessionData.product_id);
+        fetchSessionProducts();
 
         if (sessionData.status === 'ended') {
           setStreamEnded(true);
@@ -154,10 +190,19 @@ export default function LiveSessionPage() {
         filter: `id=eq.${sessionId}`
       }, (payload) => {
         const newData = payload.new as LiveSession;
+        setFeaturedId(newData.product_id); // host switched featured product
         if (newData.status === 'ended') {
           setStreamEnded(true);
           leaveChannel();
         }
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'live_session_products',
+        filter: `session_id=eq.${sessionId}`
+      }, () => {
+        fetchSessionProducts(); // product added/removed by host
       })
       .subscribe();
 
@@ -170,8 +215,11 @@ export default function LiveSessionPage() {
   // Play the host's local camera into the container once it's actually rendered
   // (during setup the loading screen is up, so the container ref is still null).
   useEffect(() => {
-    if (!loading && hasLocalVideo && localVideoTrackRef.current && videoContainerRef.current) {
-      localVideoTrackRef.current.play(videoContainerRef.current);
+    const track = localVideoTrackRef.current;
+    const container = videoContainerRef.current;
+    if (!loading && hasLocalVideo && track && container) {
+      track.play(container);
+      return () => track.stop(); // remove the video element before any replay (StrictMode/remount) — avoids duplicate tiles
     }
   }, [loading, hasLocalVideo]);
 
@@ -184,9 +232,15 @@ export default function LiveSessionPage() {
 
       // Handle remote user publishing (audience sees the host)
       client.on('user-published', async (remoteUser, mediaType) => {
+        // Host only ever shows their own local camera. Any remote publisher is a
+        // stale/duplicate connection — ignore it so the host doesn't see themselves twice.
+        if (isUserHost) return;
         await client.subscribe(remoteUser, mediaType);
         if (mediaType === 'video' && videoContainerRef.current) {
           const remoteVideoTrack = remoteUser.videoTrack as IRemoteVideoTrack;
+          // Only show one remote feed — stop any prior one so stale hosts don't stack.
+          remoteVideoTrackRef.current?.stop();
+          remoteVideoTrackRef.current = remoteVideoTrack;
           remoteVideoTrack.play(videoContainerRef.current);
           setHasRemoteVideo(true);
         }
@@ -353,10 +407,11 @@ export default function LiveSessionPage() {
     }
   };
 
-  const handleAddToCart = () => {
-    if (session?.product) {
-      addItem(session.product);
-    }
+  const featured = sessionProducts.find(p => p.id === featuredId) || session?.product || null;
+
+  const handleAddToCart = (product?: Product) => {
+    const p = product ?? featured;
+    if (p) addItem(p);
   };
 
   // Loading state
@@ -460,13 +515,13 @@ export default function LiveSessionPage() {
           </div>
         )}
 
-        {/* Product overlay for audience (desktop only — mobile uses sidebar) */}
-        {!isHost && (
+        {/* Featured product overlay for audience (desktop only — mobile uses sidebar) */}
+        {!isHost && featured && (
           <div className="product-overlay">
-            {session.product.image_url ? (
+            {featured.image_url ? (
               <img
-                src={session.product.image_url}
-                alt={session.product.name}
+                src={featured.image_url}
+                alt={featured.name}
                 className="product-overlay-image"
               />
             ) : (
@@ -475,24 +530,24 @@ export default function LiveSessionPage() {
               </div>
             )}
             <div className="product-overlay-info">
-              <div className="product-overlay-name">{session.product.name}</div>
-              <div className="product-overlay-price">${Number(session.product.price).toFixed(2)}</div>
+              <div className="product-overlay-name">{featured.name}</div>
+              <div className="product-overlay-price">${Number(featured.price).toFixed(2)}</div>
               <div className="product-overlay-stock">
-                {session.product.stock > 0 ? `${session.product.stock} in stock` : 'Out of stock'}
+                {featured.stock > 0 ? `${featured.stock} in stock` : 'Out of stock'}
               </div>
             </div>
             <div className="product-overlay-actions">
               <button
                 className="btn btn-sm btn-secondary"
-                onClick={() => setShowProductDetail(true)}
+                onClick={() => { setDetailProduct(featured); setShowProductDetail(true); }}
               >
                 <Eye size={14} />
                 View
               </button>
               <button
                 className="btn btn-sm btn-success"
-                onClick={handleAddToCart}
-                disabled={session.product.stock <= 0}
+                onClick={() => handleAddToCart()}
+                disabled={featured.stock <= 0}
               >
                 <ShoppingBag size={14} />
                 Buy
@@ -527,70 +582,39 @@ export default function LiveSessionPage() {
           <ChatPanel sessionId={session.id} />
         </div>
 
-        {/* Product info section (mobile only when product tab active, desktop: shown below chat) */}
+        {/* Products panel: host manages the set, audience browses. Always visible
+            on desktop; on mobile shown when the Product tab is active. */}
         <div
+          className="sidebar-products"
           style={{
             display: activeTab === 'product' ? 'flex' : 'none',
             flexDirection: 'column',
-            padding: 'var(--space-4)',
+            minHeight: 0,
             borderTop: '1px solid var(--color-border-light)',
             background: 'var(--color-bg-subtle)',
           }}
-          className="desktop-hide-product"
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
-            {session.product.image_url ? (
-              <img
-                src={session.product.image_url}
-                alt={session.product.name}
-                style={{ width: 64, height: 64, borderRadius: 'var(--radius-md)', objectFit: 'cover' }}
-              />
-            ) : (
-              <div style={{ width: 64, height: 64, borderRadius: 'var(--radius-md)', background: 'var(--color-bg-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
-                No img
-              </div>
-            )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 'var(--font-weight-semibold)', marginBottom: 'var(--space-1)' }}>
-                {session.product.name}
-              </div>
-              <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-primary)' }}>
-                ${Number(session.product.price).toFixed(2)}
-              </div>
-              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                {session.product.stock > 0 ? `${session.product.stock} in stock` : 'Out of stock'}
-              </div>
-            </div>
-          </div>
-          {session.product.description && (
-            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', lineHeight: 'var(--line-height-relaxed)', marginBottom: 'var(--space-4)' }}>
-              {session.product.description}
-            </p>
-          )}
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowProductDetail(true)}>
-              Full Details
-            </button>
-            <button
-              className="btn btn-success"
-              style={{ flex: 1 }}
-              onClick={handleAddToCart}
-              disabled={session.product.stock <= 0}
-            >
-              <ShoppingBag size={16} />
-              Add to Cart
-            </button>
-          </div>
+          <SessionProducts
+            isHost={isHost}
+            hostId={session.host_id}
+            products={sessionProducts}
+            featuredId={featuredId}
+            onFeature={setFeatured}
+            onRemove={removeProduct}
+            onAdd={addProduct}
+            onView={(p) => { setDetailProduct(p); setShowProductDetail(true); }}
+            onAddToCart={(p) => handleAddToCart(p)}
+          />
         </div>
       </div>
 
       {/* Product detail slide-over */}
-      {showProductDetail && (
+      {showProductDetail && detailProduct && (
         <ProductDetailPanel
-          product={session.product}
+          product={detailProduct}
           onClose={() => setShowProductDetail(false)}
           onAddToCart={() => {
-            handleAddToCart();
+            handleAddToCart(detailProduct);
             setShowProductDetail(false);
           }}
         />

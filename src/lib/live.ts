@@ -23,6 +23,8 @@ export async function goLive(product: Product, hostId: string, navigate: Navigat
     toast.error('Failed to go live: ' + error.message);
     return;
   }
+  // Seed the session's product set with this first (featured) product.
+  await supabase.from('live_session_products').insert({ session_id: data.id, product_id: product.id });
   toast.success('Going live!');
   navigate(`/live/${data.id}`);
 }
