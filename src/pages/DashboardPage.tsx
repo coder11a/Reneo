@@ -200,6 +200,17 @@ function CustomerDashboard() {
     );
   }
 
+  // A seller has one live session, but that session can contain many products.
+  // Expand it here so customers can browse every product as its own card while
+  // all cards still take them to the same stream.
+  const liveProducts = liveSessions.flatMap(session => {
+    const products = session.sessionProducts
+      ?.map(item => item.product)
+      .filter((product): product is Product => Boolean(product)) ?? [];
+    const productsToShow = products.length > 0 ? products : (session.product ? [session.product] : []);
+    return productsToShow.map(product => ({ session, product }));
+  });
+
   return (
     <div className="page">
       <div className="container">
@@ -217,7 +228,7 @@ function CustomerDashboard() {
           </span>
         </div>
 
-        {liveSessions.length === 0 ? (
+        {liveProducts.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon"><Users size={48} /></div>
             <h3 className="empty-state-title">No live sessions right now</h3>
@@ -225,17 +236,11 @@ function CustomerDashboard() {
           </div>
         ) : (
           <div className="product-grid">
-            {liveSessions.map(session => {
-              const products = session.sessionProducts
-                ?.map(item => item.product)
-                .filter((product): product is Product => Boolean(product)) ?? [];
-              const featuredProduct = products.find(product => product.id === session.product_id) || session.product;
-
-              return (
-              <div key={session.id} className="card">
+            {liveProducts.map(({ session, product }) => (
+              <div key={`${session.id}-${product.id}`} className="card">
                 <div style={{ position: 'relative' }}>
-                  {featuredProduct?.image_url ? (
-                    <img src={featuredProduct.image_url} alt={featuredProduct.name} className="card-image" />
+                  {product.image_url ? (
+                    <img src={product.image_url} alt={product.name} className="card-image" />
                   ) : (
                     <div className="card-image" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)' }}>
                       No image
@@ -251,26 +256,21 @@ function CustomerDashboard() {
                     {session.host?.name || 'Unknown host'}
                   </div>
                   <h3 style={{ fontWeight: 'var(--font-weight-semibold)', marginBottom: 'var(--space-2)' }}>
-                    {featuredProduct?.name}
+                    {product.name}
                   </h3>
                   <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-primary)', marginBottom: 'var(--space-4)' }}>
-                    ${Number(featuredProduct?.price || 0).toFixed(2)}
+                    ${Number(product.price).toFixed(2)}
                   </div>
-                  {products.length > 1 && (
-                    <div className="live-session-product-list" aria-label={`${products.length} products in this live session`}>
-                      {products.map(product => (
-                        <span key={product.id} className="live-session-product-chip">{product.name}</span>
-                      ))}
-                    </div>
-                  )}
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: product.stock > 0 ? 'var(--color-success)' : 'var(--color-danger)', marginTop: 'calc(var(--space-2) * -1)', marginBottom: 'var(--space-4)' }}>
+                    {product.stock > 0 ? `${product.stock} in stock` : 'Out of stock'}
+                  </div>
                   <Link to={`/live/${session.id}`} className="btn btn-primary" style={{ width: '100%' }}>
                     <Eye size={16} />
                     Join Live
                   </Link>
                 </div>
               </div>
-              );
-            })}
+            ))}
           </div>
         )}
       </div>

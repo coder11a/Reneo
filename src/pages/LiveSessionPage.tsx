@@ -323,10 +323,10 @@ export default function LiveSessionPage() {
 
       // Viewer count tracking
       client.on('user-joined', () => {
-        setViewerCount(prev => prev + 1);
+        if (isUserHost) setViewerCount(client.remoteUsers.length);
       });
       client.on('user-left', () => {
-        setViewerCount(prev => Math.max(0, prev - 1));
+        if (isUserHost) setViewerCount(client.remoteUsers.length);
       });
 
       // Set role BEFORE joining
@@ -334,6 +334,8 @@ export default function LiveSessionPage() {
       // uid null → Agora assigns a fresh unique uid (wildcard token), so a
       // rejoin never collides with a lingering connection (UID_CONFLICT).
       await client.join(appId, channelName, token, null);
+      // Covers viewers who were already in the channel before the host joined.
+      if (isUserHost) setViewerCount(client.remoteUsers.length);
 
       // Host: create and publish local tracks
       if (isUserHost) {
@@ -390,6 +392,11 @@ export default function LiveSessionPage() {
       console.error(e);
       toast.error('Failed to end stream. Please try again.');
     }
+  };
+
+  const handleLeaveLive = async () => {
+    await leaveChannel();
+    navigate('/');
   };
 
   const toggleMic = async () => {
@@ -546,6 +553,19 @@ export default function LiveSessionPage() {
                 End
               </button>
             </div>
+          </div>
+        )}
+
+        {!isHost && (
+          <div className="live-overlay-bottom audience-controls">
+            <button
+              onClick={handleLeaveLive}
+              className="host-control-btn end-live"
+              title="Leave live session"
+            >
+              <PhoneOff size={18} />
+              Leave Live
+            </button>
           </div>
         )}
 

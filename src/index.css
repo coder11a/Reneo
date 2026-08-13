@@ -778,6 +778,11 @@ ul, ol {
   background: var(--color-danger-hover);
 }
 
+.audience-controls {
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* ── Product Overlay (on live stream) ── */
 .product-overlay {
   position: absolute;
@@ -847,6 +852,22 @@ ul, ol {
   gap: var(--space-2);
   flex-shrink: 0;
 }
+
+/* ── Products in a live session ── */
+.session-products {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.session-product-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 
 /* ── Chat ── */
 .chat-panel {

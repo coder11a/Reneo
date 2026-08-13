@@ -35,13 +35,13 @@ export function SessionProducts({
   const addable = catalog.filter(p => !inSession.has(p.id));
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', padding: 'var(--space-4)', overflowY: 'auto' }}>
+    <div className={`session-products ${isHost ? 'session-products-host' : 'session-products-customer'}`}>
       <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-semibold)' }}>
         Products in this session
       </div>
 
       {products.map(product => (
-        <div key={product.id} className="card card-body" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+        <div key={product.id} className="card card-body session-product-row">
           {product.image_url ? (
             <img src={product.image_url} alt={product.name} style={{ width: 48, height: 48, borderRadius: 'var(--radius-md)', objectFit: 'cover' }} />
           ) : (
