@@ -10,6 +10,7 @@ import { goLive, LIVE_FRESHNESS_MS } from '../lib/live';
 type LiveSessionWithDetails = LiveSession & {
   product: Product;
   host: Profile;
+  items: { count: number }[];
 };
 
 export default function DashboardPage() {
@@ -164,7 +165,7 @@ function CustomerDashboard() {
       const freshCutoff = new Date(Date.now() - LIVE_FRESHNESS_MS).toISOString();
       const { data, error } = await supabase
         .from('live_sessions')
-        .select('*, product:products!live_sessions_product_id_fkey(*), host:profiles(*)')
+        .select('*, product:products!live_sessions_product_id_fkey(*), host:profiles(*), items:live_session_products(count)')
         .eq('status', 'live')
         .gt('last_seen_at', freshCutoff);
 
@@ -241,6 +242,11 @@ function CustomerDashboard() {
                   </h3>
                   <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-primary)', marginBottom: 'var(--space-4)' }}>
                     ${Number(session.product?.price || 0).toFixed(2)}
+                    {(session.items?.[0]?.count ?? 1) > 1 && (
+                      <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-medium)', color: 'var(--color-text-secondary)', marginLeft: 'var(--space-2)' }}>
+                        +{(session.items[0].count - 1)} more product{session.items[0].count - 1 > 1 ? 's' : ''}
+                      </span>
+                    )}
                   </div>
                   <Link to={`/live/${session.id}`} className="btn btn-primary" style={{ width: '100%' }}>
                     <Eye size={16} />
