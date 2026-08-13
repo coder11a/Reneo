@@ -27,8 +27,21 @@ export async function goLive(product: Product, hostId: string, navigate: Navigat
     .maybeSingle();
 
   if (existing) {
-    await supabase.from('live_session_products').upsert({ session_id: existing.id, product_id: product.id });
-    await supabase.from('live_sessions').update({ product_id: product.id }).eq('id', existing.id); // feature the newly added product
+    const { error: productError } = await supabase
+      .from('live_session_products')
+      .upsert({ session_id: existing.id, product_id: product.id });
+    if (productError) {
+      toast.error(`Could not add product to the live session: ${productError.message}`);
+      return;
+    }
+
+    const { error: featureError } = await supabase
+      .from('live_sessions')
+      .update({ product_id: product.id })
+      .eq('id', existing.id); // feature the newly added product
+    if (featureError) {
+      toast.error(`Product was added, but could not feature it: ${featureError.message}`);
+    }
     navigate(`/live/${existing.id}`);
     return;
   }
@@ -45,7 +58,12 @@ export async function goLive(product: Product, hostId: string, navigate: Navigat
     return;
   }
   // Seed the session's product set with this first (featured) product.
-  await supabase.from('live_session_products').insert({ session_id: data.id, product_id: product.id });
+  const { error: productError } = await supabase
+    .from('live_session_products')
+    .upsert({ session_id: data.id, product_id: product.id });
+  if (productError) {
+    toast.error(`Live session started, but its product could not be added: ${productError.message}`);
+  }
   toast.success('Going live!');
   navigate(`/live/${data.id}`);
 }

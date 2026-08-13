@@ -1364,6 +1364,10 @@ ul, ol {
 
 /* Products panel: always visible on desktop; mobile toggles it via the tab. */
 @media (min-width: 769px) {
+  .desktop-always-show {
+    display: flex !important;
+  }
+
   .sidebar-products {
     display: flex !important;
     flex: 1;

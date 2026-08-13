@@ -82,15 +82,25 @@ export default function LiveSessionPage() {
       .order('added_at', { ascending: true });
     if (productsError) {
       console.error('Failed to load session products:', productsError);
-      toast.error('Could not load the products in this session.');
       return;
     }
     setSessionProducts(((data as unknown as { product: Product }[]) || []).map(r => r.product).filter(Boolean));
   }, [sessionId]);
 
   const addProduct = async (productId: string) => {
-    await supabase.from('live_session_products').insert({ session_id: sessionId, product_id: productId });
-    fetchSessionProducts();
+    if (!sessionId) return;
+    const { error: addError } = await supabase
+      .from('live_session_products')
+      .upsert({ session_id: sessionId, product_id: productId });
+
+    if (addError) {
+      console.error('Failed to add product to session:', addError);
+      toast.error(`Could not add this product to the live session: ${addError.message}`);
+      return;
+    }
+
+    await fetchSessionProducts();
+    toast.success('Product added to this live session.');
   };
 
   const removeProduct = async (productId: string) => {
@@ -232,6 +242,15 @@ export default function LiveSessionPage() {
       leavePromiseRef.current = leaveChannel();
     };
   }, [sessionId, user?.id, authLoading]);
+
+  // Realtime is the fastest way to receive product changes. Polling is kept as
+  // a fallback so viewers still see products added after they joined when their
+  // Supabase project has not enabled the realtime publication yet.
+  useEffect(() => {
+    if (!sessionId) return;
+    const interval = window.setInterval(() => void fetchSessionProducts(), 5000);
+    return () => clearInterval(interval);
+  }, [sessionId, fetchSessionProducts]);
 
   // Play the host's local camera into the container once it's actually rendered
   // (during setup the loading screen is up, so the container ref is still null).
